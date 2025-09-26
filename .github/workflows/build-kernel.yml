@@ -1,6 +1,5 @@
 name: CI Build Kernel (ARM)
 
-# Trigger this workflow on pushes and pull requests to the 'main' branch
 on:
   push:
     branches: [ "main" ]
@@ -10,30 +9,22 @@ jobs:
   build-and-test:
     runs-on: ubuntu-22.04
     
-    # Define environment variables for the build script
     env:
-      # Use a specific kernel version tag for reproducible builds
-      # Leaving this empty will build from the latest branch, which can be unstable
       KERNEL_TAG: "v6.1"
-      # The defconfig for a generic ARMv7 kernel, suitable for QEMU testing
       DEFCONFIG: multi_v7_defconfig
-      # The cross-compiler prefix
       CROSS_COMPILE: arm-linux-gnueabihf-
 
     steps:
       - name: Checkout Repository
-        # Action to check out your code from the repo
         uses: actions/checkout@v4
 
       - name: Build Docker Image
-        # The Dockerfile is located at the root of the repository, so we use "."
         run: docker build -t lab5-kernel:latest .
 
       - name: Run Kernel Build inside Container
-        # The script builds the kernel inside the container,
-        # mounting the repository root into /work
         run: |
           docker run --rm \
+            -u $(id -u):$(id -g) \
             -v ${{ github.workspace }}:/work \
             -w /work \
             lab5-kernel:latest \
@@ -44,7 +35,6 @@ jobs:
               ./build_kernel.sh"
 
       - name: Upload Kernel Artifacts
-        # Upload the built zImage and all generated DTB files
         uses: actions/upload-artifact@v4
         with:
           name: kernel-artifacts
@@ -53,22 +43,17 @@ jobs:
             linux/arch/arm/boot/dts
           retention-days: 7
 
-      # --- QEMU Test Job ---
       - name: Download Kernel Artifacts
-        # Download the artifacts from the same job for testing
         uses: actions/download-artifact@v4
         with:
           name: kernel-artifacts
           path: ./artifacts
 
       - name: Install QEMU
-        # Install QEMU and necessary libraries for the test
         run: sudo apt-get update && sudo apt-get install -y qemu-system-arm
 
       - name: Run QEMU to boot kernel
         run: |
-          # Use the zImage and a specific DTB for the versatilepb machine
-          # The multi_v7_defconfig generates a lot of DTBs, but this is the right one for our test
           KIMG=./artifacts/linux/arch/arm/boot/zImage
           DTB=./artifacts/linux/arch/arm/boot/dts/vexpress-v2p-ca9.dtb
           
@@ -78,8 +63,6 @@ jobs:
             -append "console=ttyAMA0 root=/dev/ram rdinit=/init" \
             -no-reboot -serial mon:stdio &
           
-          # Wait for the kernel to boot
           sleep 30
           
-          # Kill the QEMU process to end the job
           sudo pkill -f qemu-system-arm || true
